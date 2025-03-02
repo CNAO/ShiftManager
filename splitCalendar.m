@@ -1,7 +1,10 @@
 %%
 
+clear all;
+close all;
+
 %% user options
-employeeName="manzini";
+employeeName="manzini"; % cognome persona, o "ricerca", o "operatori", o "tutti" 
 masterExcelShifts="P:\Turni Macchina\turni dicembre-giugno 2025_ver1.xlsx";
 
 %% parsing original excel
@@ -14,6 +17,10 @@ if (isstring(employeeName))
     if (strcmpi(employeeName,"all") | strcmpi(employeeName,"tutti") )
         employeeNames=unique(lower(string(masterShifts{:,2:7})));
         employeeNames=employeeNames(strlength(employeeNames)>0);
+    elseif (contains(lower(employeeName),"ricerca") | contains(lower(employeeName),"research"))
+        employeeNames=["Butella","Donetti","Mereghetti","Pullia","Savazzi"];
+    elseif (contains(lower(employeeName),"operatori") | contains(lower(employeeName),"operators"))
+        employeeNames=["Abbiati","Basso","Beretta","Bozza","Chiesa","Liceti","Malinverni","Manzini","Scotti","Spairani"];
     else
         employeeNames=[employeeName];
     end
@@ -26,7 +33,26 @@ for ii=1:length(employeeNames)
     % - build table of employee
     employeeShifts=BuildEmployeeTable(masterShifts,employeeNames(ii));
     % - write csv file
-    oFileName=sprintf("%s.csv",employeeNames(ii));
+    if (contains(lower(employeeName),"ricerca"))
+        switch employeeNames(ii)
+            case "Butella"
+                employeeShifts.subjects(:)=compose("GB: %s",employeeShifts.subjects(:));
+            case "Donetti"
+                employeeShifts.subjects(:)=compose("MD: %s",employeeShifts.subjects(:));
+            case "Mereghetti"
+                employeeShifts.subjects(:)=compose("AM: %s",employeeShifts.subjects(:));
+            case "Pullia"
+                employeeShifts.subjects(:)=compose("MGP: %s",employeeShifts.subjects(:));
+            case "Savazzi"
+                employeeShifts.subjects(:)=compose("SS: %s",employeeShifts.subjects(:));
+        end
+    else
+        oFileName=sprintf("%s.csv",employeeNames(ii));
+        writeGoogleCalendarCSV(employeeShifts,oFileName);
+    end
+end
+if (contains(lower(employeeName),"ricerca"))
+    oFileName=sprintf("%s.csv",employeeName);
     writeGoogleCalendarCSV(employeeShifts,oFileName);
 end
 
@@ -46,7 +72,7 @@ function masterShifts=ParseMasterFile(masterExcelShifts)
             [masterShifts.(iCol)(indices),masterShifts.(iCol+1)(indices)]=deal(masterShifts.(iCol+1)(indices),masterShifts.(iCol)(indices));
         end
     end
-    fprintf("...done;");
+    fprintf("...done;\n");
 end
 
 function oNames=CapitalizeNames(iNames)
@@ -61,6 +87,7 @@ function employeeShifts=BuildEmployeeTable(masterShifts,employeeName)
     shiftHours=["06:00","14:00","14:00","22:00","22:00","06:00"];
     shiftDays=zeros(1,6); shiftDays(5:6)=1;
     shiftRoles=["shift leader","addetto sicurezza"];
+    shiftTag=["turno mattino","turno pomeriggio","turno notte"];
     % do the job
     fprintf("looking for shifts of %s...\n",employeeName);
     employeeShifts=table();
@@ -73,7 +100,7 @@ function employeeShifts=BuildEmployeeTable(masterShifts,employeeName)
             currLen=size(employeeShifts,1);
             otherShifters=masterShifts.(iCol+(-1)^mod(iCol,2)); otherShifters=CapitalizeNames(string(otherShifters(iTurni)));
             % - subject
-            employeeShifts.subjects(currLen+1:currLen+nTurni)=sprintf("Turno %s",shiftRoles(mod(iCol,2)+1));
+            employeeShifts.subjects(currLen+1:currLen+nTurni)=shiftTag(floor(iCol/2));
             % - start dates and times:
             employeeShifts.startDates(currLen+1:currLen+nTurni)=currDates(iTurni);
             employeeShifts.startTimes(currLen+1:currLen+nTurni)=shiftHours(2*floor(iCol/2)-1);
@@ -90,7 +117,8 @@ function employeeShifts=BuildEmployeeTable(masterShifts,employeeName)
             end
             employeeShifts.endTimes(currLen+1:currLen+nTurni)=shiftHours(2*floor(iCol/2));
             % - descriptions
-            employeeShifts.descriptions(currLen+1:currLen+nTurni)=compose("%s: %s",shiftRoles(mod(iCol-1,2)+1),otherShifters);
+            employeeShifts.descriptions(currLen+1:currLen+nTurni)=compose("Tu sei %s, con %s come %s",...
+                    shiftRoles(mod(iCol,2)+1),otherShifters,shiftRoles(mod(iCol-1,2)+1));
         end
     end
     % - sorting
