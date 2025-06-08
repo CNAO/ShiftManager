@@ -4,8 +4,8 @@ clear all;
 close all;
 
 %% user options
-employeeName="manzini"; % cognome persona, o "ricerca", o "operatori", o "tutti" 
-masterExcelShifts="P:\Turni Macchina\turni dicembre-giugno 2025_ver1.xlsx";
+employeeName="ricerca"; % cognome persona, o "ricerca"/"research", o "operatori", o "tutti"/"all" 
+masterExcelShifts="P:\Turni Macchina\Turni 2025-2026_Ver3.4.xlsx";
 
 %% parsing original excel
 masterShifts=ParseMasterFile(masterExcelShifts);
@@ -15,10 +15,9 @@ masterShifts=ParseMasterFile(masterExcelShifts);
 % find(contains(lower(masterShifts.(8)),"recupero"))
 if (isstring(employeeName))
     if (strcmpi(employeeName,"all") | strcmpi(employeeName,"tutti") )
-        employeeNames=unique(lower(string(masterShifts{:,2:7})));
-        employeeNames=employeeNames(strlength(employeeNames)>0);
+        employeeNames=GetUniqueNames(masterShifts);
     elseif (contains(lower(employeeName),"ricerca") | contains(lower(employeeName),"research"))
-        employeeNames=["Butella","Donetti","Mereghetti","Pullia","Savazzi"];
+        employeeNames=["Butella","Donetti","Mereghetti","Pullia","Ricerca","Savazzi"];
     elseif (contains(lower(employeeName),"operatori") | contains(lower(employeeName),"operators"))
         employeeNames=["Abbiati","Basso","Beretta","Bozza","Chiesa","Liceti","Malinverni","Manzini","Scotti","Spairani"];
     else
@@ -29,6 +28,7 @@ else
 end
 
 %% process
+rEmployeeShifts=NaN();
 for ii=1:length(employeeNames)
     % - build table of employee
     employeeShifts=BuildEmployeeTable(masterShifts,employeeNames(ii));
@@ -46,6 +46,11 @@ for ii=1:length(employeeNames)
             case "Savazzi"
                 employeeShifts.subjects(:)=compose("SS: %s",employeeShifts.subjects(:));
         end
+        if (ii==1)
+            rEmployeeShifts=employeeShifts;
+        else
+            rEmployeeShifts=[rEmployeeShifts;employeeShifts];
+        end
     else
         oFileName=sprintf("%s.csv",employeeNames(ii));
         writeGoogleCalendarCSV(employeeShifts,oFileName);
@@ -53,8 +58,10 @@ for ii=1:length(employeeNames)
 end
 if (contains(lower(employeeName),"ricerca"))
     oFileName=sprintf("%s.csv",employeeName);
-    writeGoogleCalendarCSV(employeeShifts,oFileName);
+    writeGoogleCalendarCSV(rEmployeeShifts,oFileName);
 end
+
+%%
 
 %% functions
 function masterShifts=ParseMasterFile(masterExcelShifts)
@@ -73,12 +80,31 @@ function masterShifts=ParseMasterFile(masterExcelShifts)
         end
     end
     fprintf("...done;\n");
+    %
+    fprintf("checking cancelled shifts...\n");
+    Excel = actxserver('Excel.Application');
+    Excel.Workbooks.Open(masterExcelShifts);
+    for iRow=1:size(masterShifts,1)
+        for iCol=1:6
+            Range= Excel.Range(sprintf("%s%d",char(double('A')+iCol),iRow+1));
+            if (Range.Font.Strikethrough)
+                if (strlength(string(masterShifts.(iCol+1)(iRow)))>0)
+                    fprintf("...cacelled %s shift for %s on %s!\n",shiftNames(ceil(iCol/2)),string(masterShifts.(iCol+1)(iRow)),string(masterShifts.(1)(iRow)));
+                end
+                masterShifts.(iCol+1)(iRow)=cellstr("");
+            end
+        end
+    end
+    Quit(Excel);
+    delete(Excel);
+    fprintf("...done;\n");
 end
 
 function oNames=CapitalizeNames(iNames)
     oNames=lower(iNames);
     iFMs=strcmp(oNames,"fm");
     oNames(iFMs)="FM";
+    oNames(strlength(oNames)==0)="Nessuno";
     oNames(~iFMs)=compose("%s%s",upper(extractBetween(oNames(~iFMs),1,1)),extractBetween(oNames(~iFMs),2,strlength(oNames(~iFMs))));
 end
 
@@ -92,7 +118,7 @@ function employeeShifts=BuildEmployeeTable(masterShifts,employeeName)
     fprintf("looking for shifts of %s...\n",employeeName);
     employeeShifts=table();
     for iCol=2:7
-        iTurni=strcmpi(employeeName,masterShifts.(iCol));
+        iTurni=contains(masterShifts.(iCol),employeeName,"IgnoreCase",true);
         nTurni=sum(iTurni);
         if (nTurni>0)
             % prepare info to store
@@ -117,10 +143,36 @@ function employeeShifts=BuildEmployeeTable(masterShifts,employeeName)
             end
             employeeShifts.endTimes(currLen+1:currLen+nTurni)=shiftHours(2*floor(iCol/2));
             % - descriptions
-            employeeShifts.descriptions(currLen+1:currLen+nTurni)=compose("Tu sei %s, con %s come %s",...
-                    shiftRoles(mod(iCol,2)+1),otherShifters,shiftRoles(mod(iCol-1,2)+1));
+%             employeeShifts.descriptions(currLen+1:currLen+nTurni)=compose("Tu sei %s, con %s come %s",...
+%                     shiftRoles(mod(iCol,2)+1),otherShifters,shiftRoles(mod(iCol-1,2)+1));
+            employeeShifts.descriptions(currLen+1:currLen+nTurni)=compose("Sei in turno con %s",otherShifters);
+            % - take into account notes in same column
+            additionalNotes=string(masterShifts.(iCol));
+            additionalNotes=additionalNotes(iTurni);
+            iNotes=find(~strcmpi(additionalNotes,employeeName));
+            employeeShifts.descriptions(currLen+iNotes)=additionalNotes(iNotes);
+            % - take into account notes in columns >7
+            additionalComments=string(masterShifts.(floor(iCol/2)+7));
+            additionalComments=additionalComments(iTurni);
+            iComments=find(strlength(additionalComments)>0);
+            employeeShifts.descriptions(currLen+iComments)=compose("%s;\n NOTA: %s",employeeShifts.descriptions(currLen+iComments),additionalComments(iComments));
+            % - take into accounts possible time indications
+            shiftCol=string(masterShifts.(iCol)); shiftCol=shiftCol(iTurni);
+            if (nTurni==1)
+                iShifts=~isempty(regexp(shiftCol,"9\s*-\s*17")) | ~isempty(regexp(additionalComments,"9\s*-\s*17"));
+                if (iShifts), employeeShifts.startTimes(currLen+iShifts)="09:00"; employeeShifts.endTimes(currLen+iShifts)="17:00"; clear iShifts; end
+                iShifts=~isempty(regexp(shiftCol,"8\s*-\s*16")) | ~isempty(regexp(additionalComments,"8\s*-\s*16"));
+                if (iShifts), employeeShifts.startTimes(currLen+iShifts)="08:00"; employeeShifts.endTimes(currLen+iShifts)="16:00"; clear iShifts; end
+            else
+                iShifts=find(~cellfun(@isempty,regexp(shiftCol,"9\s*-\s*17")) | ~cellfun(@isempty,regexp(additionalComments,"9\s*-\s*17")));
+                employeeShifts.startTimes(currLen+iShifts)="09:00"; employeeShifts.endTimes(currLen+iShifts)="17:00"; clear iShifts;
+                iShifts=find(~cellfun(@isempty,regexp(shiftCol,"8\s*-\s*16")) | ~cellfun(@isempty,regexp(additionalComments,"8\s*-\s*16")));
+                employeeShifts.startTimes(currLen+iShifts)="08:00"; employeeShifts.endTimes(currLen+iShifts)="16:00"; clear iShifts;
+            end
         end
     end
+    employeeShifts.descriptions(contains(employeeShifts.descriptions,"nessuno","IgnoreCase",true))="Sei in turno da solo";
+    employeeShifts.descriptions(contains(employeeShifts.descriptions,"ricerca","IgnoreCase",true))="Turno ricerca";
     % - sorting
     [~,IDs]=sort(employeeShifts.startDates);
     employeeShifts=employeeShifts(IDs,:);
@@ -156,6 +208,29 @@ function writeGoogleCalendarCSV(employeeShifts,oFileName)
                 error("Unknown header: %s",headers(ii));
         end
     end
-    writematrix(employTable,oFileName);
+    writematrix(employTable,oFileName,"QuoteStrings",true);
     fprintf("...done;\n");
+end
+
+function uniqueNames=GetUniqueNames(masterShifts)
+    uniqueNames=unique(lower(string(masterShifts{:,2:7})));
+    % handling of exceptions
+    uniqueNames=replace(uniqueNames,"/",",");       % split names separated by "/"
+    uniqueNames=replace(uniqueNames,"checklist","");% remove "checklist"
+    uniqueNames=replace(uniqueNames,"chiusura",""); % remove "chiusura"
+    uniqueNames=replace(uniqueNames,"turno","");    % remove "turno"
+    uniqueNames=replace(uniqueNames,"8-16","");     % remove "8-16"
+    uniqueNames=replace(uniqueNames,"9-17","");     % remove "9-17"
+    uniqueNames=regexprep(uniqueNames,'\s+',',');   % consecutive empty spaces to ","
+    uniqueNames=regexprep(uniqueNames,':+','');     % consecutive ":" to ""
+    uniqueNames=regexprep(uniqueNames,',+',',');    % consecutive "," to single ","
+    % extract entries with commas:
+    tmp=uniqueNames(contains(uniqueNames,","));
+    uniqueNames(contains(uniqueNames,","))=[];
+    for ii=1:length(tmp)
+        uniqueNames=[uniqueNames;split(tmp(ii),",")];
+    end
+    % final settings
+    uniqueNames=unique(uniqueNames);
+    uniqueNames=uniqueNames(strlength(uniqueNames)>0);
 end
