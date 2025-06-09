@@ -4,8 +4,9 @@ clear all;
 close all;
 
 %% user options
-employeeName="ricerca"; % cognome persona, o "ricerca"/"research", o "operatori", o "tutti"/"all" 
+employeeName="tutti"; % cognome persona, o "ricerca"/"research", o "operatori", o "tutti"/"all" 
 masterExcelShifts="P:\Turni Macchina\Turni 2025-2026_Ver3.4.xlsx";
+omFileName=ExtractFileName(masterExcelShifts);
 
 %% parsing original excel
 masterShifts=ParseMasterFile(masterExcelShifts);
@@ -52,12 +53,12 @@ for ii=1:length(employeeNames)
             rEmployeeShifts=[rEmployeeShifts;employeeShifts];
         end
     else
-        oFileName=sprintf("%s.csv",employeeNames(ii));
+        oFileName=sprintf("%s_%s.csv",employeeNames(ii),omFileName);
         writeGoogleCalendarCSV(employeeShifts,oFileName);
     end
 end
 if (contains(lower(employeeName),"ricerca"))
-    oFileName=sprintf("%s.csv",employeeName);
+    oFileName=sprintf("%s_%s.csv",employeeName,omFileName);
     writeGoogleCalendarCSV(rEmployeeShifts,oFileName);
 end
 
@@ -233,4 +234,9 @@ function uniqueNames=GetUniqueNames(masterShifts)
     % final settings
     uniqueNames=unique(uniqueNames);
     uniqueNames=uniqueNames(strlength(uniqueNames)>0);
+end
+
+function oFileName=ExtractFileName(masterExcelShifts)
+    [folder,baseFileNameNoExt,extension]=fileparts(masterExcelShifts);
+    oFileName=regexprep(baseFileNameNoExt,'\s+','_');
 end
